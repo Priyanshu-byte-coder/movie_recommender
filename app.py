@@ -1,6 +1,8 @@
 import pickle
 import streamlit as st
 import requests
+import os
+import gdown
 
 
 def fetch_poster(movie_id):
@@ -12,13 +14,11 @@ def fetch_poster(movie_id):
         poster_path = data.get('poster_path')
 
         if not poster_path:
-            print(f"[Warning] No poster found for movie ID: {movie_id}")
             return "https://via.placeholder.com/500x750?text=No+Poster"
 
         return "https://image.tmdb.org/t/p/w500/" + poster_path
 
     except Exception as e:
-        print(f"[Error] Failed to fetch poster for movie ID: {movie_id} — {e}")
         return "https://via.placeholder.com/500x750?text=Image+Unavailable"
 
 
@@ -74,30 +74,90 @@ st.markdown("""
         font-size: 16px;
         font-weight: 500;
     }
+    .status-message {
+        text-align: center;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 # ---------------- APP HEADER ----------------
 st.markdown("<h1>🎬 Movie Recommender System</h1>", unsafe_allow_html=True)
 
+
 # ---------------- LOAD DATA ----------------
-movies = pickle.load(open('movies.pkl', 'rb'))
-similarity = pickle.load(open('similarity.pkl', 'rb'))
+@st.cache_resource  # Cache the loaded data to improve performance
+def load_data():
+    # Show a loading spinner while data is being loaded
+    with st.spinner("Loading movie data..."):
+        try:
+            # Load movies.pkl silently
+            movies = pickle.load(open('movies.pkl', 'rb'))
+
+            # Try to load similarity matrix from local path
+            similarity_path = "similarity.pkl"
+
+            if os.path.exists(similarity_path) and os.path.getsize(similarity_path) > 0:
+                try:
+                    with open(similarity_path, 'rb') as f:
+                        # Read to verify it's a valid pickle file
+                        test_read = pickle.load(f)
+                    similarity = pickle.load(open(similarity_path, 'rb'))
+                    return movies, similarity
+                except Exception:
+                    # Remove the corrupted file silently
+                    os.remove(similarity_path)
+
+            # If the file doesn't exist or is invalid, download it silently
+            file_id = "1WIR0FkmM1iY0_ysLvC1nUbxUfwk6L1W_"  # Your Google Drive file ID
+
+            try:
+                # Use gdown for more reliable Google Drive downloads
+                output = gdown.download(
+                    f"https://drive.google.com/uc?id={file_id}",
+                    similarity_path,
+                    quiet=True  # Set to True to hide download progress
+                )
+
+                if output:
+                    # Load the downloaded file
+                    similarity = pickle.load(open(similarity_path, 'rb'))
+                    return movies, similarity
+                else:
+                    st.error("Unable to load movie database. Please try again later.")
+                    st.stop()
+            except Exception:
+                st.error("Unable to load movie database. Please try again later.")
+                st.stop()
+
+        except Exception:
+            st.error("Something went wrong while loading the movie database. Please try again later.")
+            st.stop()
+
+
+# Load data
+movies, similarity = load_data()
 
 # ---------------- DROPDOWN ----------------
+st.markdown(
+    "<p style='text-align:center'>Find movies similar to your favorites! Select a movie from the dropdown below:</p>",
+    unsafe_allow_html=True)
 movie_list = movies['title'].values
 selected_movie = st.selectbox("🎥 Select a movie to get recommendations", movie_list)
 
 # ---------------- BUTTON ----------------
 if st.button('🔍 Show Recommendations'):
-    recommended_movie_names, recommended_movie_posters = recommend(selected_movie)
+    with st.spinner("Finding movies you'll love..."):
+        recommended_movie_names, recommended_movie_posters = recommend(selected_movie)
 
-    cols = st.columns(5)
-    for i, col in enumerate(cols):
-        with col:
-            st.markdown(f"""
-                <div class='movie-card'>
-                    <h5>{recommended_movie_names[i]}</h5>
-                    <img src="{recommended_movie_posters[i]}" width="100%" style="border-radius:10px"/>
-                </div>
-            """, unsafe_allow_html=True)
+        cols = st.columns(5)
+        for i, col in enumerate(cols):
+            with col:
+                st.markdown(f"""
+                    <div class='movie-card'>
+                        <h5>{recommended_movie_names[i]}</h5>
+                        <img src="{recommended_movie_posters[i]}" width="100%" style="border-radius:10px"/>
+                    </div>
+                """, unsafe_allow_html=True)
